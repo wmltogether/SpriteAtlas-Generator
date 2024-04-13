@@ -1,0 +1,11 @@
+{
+  "name": "com.moogle.spriteatlas-generator",
+  "displayName": "SpriteAtlas Generator",
+  "description": "A Unity3d Rule-Based SpriteAtlas Generator.",
+  "version": "1.0.0",
+  "unity": "2022.1",
+  "license": "MIT",
+  "dependencies": {
+    "com.unity.2d.sprite": ""
+  }
+}

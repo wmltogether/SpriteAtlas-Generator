@@ -1,0 +1,20 @@
+{
+    "name": "SpriteAtlasGenerator.Editor",
+    "rootNamespace": "SpriteAtlasGenerator.Editor",
+    "references": [
+        "GUID:2c573e6b271651846a79655161004c5b"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UNITY_2022_1_OR_NEWER"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
