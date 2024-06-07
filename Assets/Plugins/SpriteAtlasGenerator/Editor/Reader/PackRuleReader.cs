@@ -16,6 +16,8 @@ namespace SpriteAtlasGenerator.Editor.Reader
         public bool? EnableTightPacking { get; protected set; }
         public bool? EnableAlphaDilation { get; protected set; }
 
+        public int? MaxSize { get; protected set; }
+
         public List<string> Files { get; protected set; }
         public List<string> Folders { get; protected set; }
         
@@ -73,12 +75,14 @@ namespace SpriteAtlasGenerator.Editor.Reader
                 _ = fs.Read(chkChunk, 0, (int)(Math.Max(chkChunk.Length, fs.Length)));
                 if (!IsJsonFile(chkChunk))
                 {
+                    fs.Close();
                     return;
                 }
 
                 fs.Seek(0, SeekOrigin.Begin);
                 var content = new byte[fs.Length];
                 _ = fs.Read(content, 0, content.Length);
+                fs.Close();
                 var jsonData = SimpleJSON.SimpleJSON.Parse(new UTF8Encoding(false).GetString(content));
                 if (jsonData.HasKey("AtlasName"))
                 {
@@ -97,6 +101,11 @@ namespace SpriteAtlasGenerator.Editor.Reader
                     {
                         Padding = padding;
                         _errorBuilder.AppendLine(errPadding);
+                    }
+                    if (TryReadInt(settingsSection, "MaxSize", out var maxSize, out var errMaxSize))
+                    {
+                        MaxSize = maxSize;
+                        _errorBuilder.AppendLine(errMaxSize);
                     }
                     if (TryReadBool(settingsSection, "EnableRotation", out var enableRotation, out var errEnableRotation))
                     {

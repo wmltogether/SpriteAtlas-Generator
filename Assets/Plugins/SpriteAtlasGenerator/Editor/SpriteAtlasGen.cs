@@ -87,16 +87,35 @@ namespace SpriteAtlasGenerator.Editor
                     sAtlasPath = sAtlasPath.Replace("\\", "/");
                     SpriteAtlasAsset atlas = SpriteAtlasAsset.Load(sAtlasPath);
                     if (atlas == null)
-                        atlas = CreateSpriteAtlas(sAtlasPath);
-                    UnityEngine.Object[] packables = atlas.GetMasterAtlas() == null ? null :
-                        atlas.GetMasterAtlas().GetPackables();
-                    List<UnityEngine.Object> newPackableList = new List<UnityEngine.Object>();
-                    if (packables != null)
                     {
-                        atlas.Remove(packables);
+                        atlas = CreateSpriteAtlas(ruleReader, sAtlasPath);
                     }
-                    packables = atlas.GetMasterAtlas() == null ? null :
-                        atlas.GetMasterAtlas().GetPackables();
+                        
+                    else
+                    {
+                        OverrideAtlasSettings(ruleReader, sAtlasPath);
+                    }
+
+                    UnityEngine.Object[] packables;
+                    var newPackableList = new HashSet<UnityEngine.Object>();
+                    while (true)
+                    {
+                        packables = atlas.GetMasterAtlas() == null ? null :
+                            atlas.GetMasterAtlas().GetPackables();
+                        if (packables != null && packables.Length > 0)
+                        {
+                            atlas.Remove(packables);
+                            atlas.GetMasterAtlas().Remove(packables);
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    EditorUtility.SetDirty(atlas);
+                    SpriteAtlasAsset.Save(atlas, sAtlasPath);
+                    AssetDatabase.SaveAssets();
+                    atlas = SpriteAtlasAsset.Load(sAtlasPath);
                     if (ruleReader.Folders != null)
                     {
                         foreach (var folder in ruleReader.Folders)
@@ -109,7 +128,7 @@ namespace SpriteAtlasGenerator.Editor
                                 for (int z = 0; z < files?.Count; z++)
                                 {
                                     files[z] = files[z].Replace("\\", "/");
-                                    AddNewSpriteToAtlas(files[z], packables, newPackableList);
+                                    AddNewSpriteToAtlas(files[z], newPackableList);
                                 }
                             }
                         }
@@ -121,27 +140,26 @@ namespace SpriteAtlasGenerator.Editor
                         for (int z = 0; z < files?.Count; z++)
                         {
                             files[z] = files[z].Replace("\\", "/");
-                            AddNewSpriteToAtlas(files[z], packables, newPackableList);
+                            AddNewSpriteToAtlas(files[z], newPackableList);
                         }
                     }
 
-                    packables = newPackableList.OrderBy(it => it.name).Distinct().ToArray();
+                    packables = newPackableList.Where(it => it != null).OrderBy(it => it.name).Distinct().ToArray();
+                    atlas.Remove(packables);
                     atlas.Add(packables);
                     EditorUtility.SetDirty(atlas);
                     SpriteAtlasAsset.Save(atlas, sAtlasPath);
-                    OverrideAtlasSettings(ruleReader, atlas);
                 }
             }
             catch (Exception e)
             {
                 Debug.LogError(e);
             }
-            finally
-            {
-                SpriteAtlasUtility.PackAllAtlases(EditorUserBuildSettings.activeBuildTarget, false);
-                EditorUtility.ClearProgressBar();
-                AssetDatabase.Refresh();
-            }
+            AssetDatabase.SaveAssets();
+            AssetDatabase.ImportAsset(atlasOutputDirectory, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ImportRecursive);
+            SpriteAtlasUtility.PackAllAtlases(EditorUserBuildSettings.activeBuildTarget, false);
+            EditorUtility.ClearProgressBar();
+            AssetDatabase.Refresh();
         }
 
         private static List<string> FindImages(string folder)
@@ -171,50 +189,57 @@ namespace SpriteAtlasGenerator.Editor
 
         }
 
-        private static void OverrideAtlasSettings(PackRuleReader ruleReader, SpriteAtlasAsset atlas)
+        private static void OverrideAtlasSettings(PackRuleReader rule, string atlasPath)
         {
             SpriteAtlasGeneratorSettings.Instance.Validate();
-            var defaultSettings = SpriteAtlasGeneratorSettings.Instance.defaultAtlasSettings;
-            var path = AssetDatabase.GetAssetPath(atlas);
-            if (string.IsNullOrEmpty(path)) return;
+            var path = atlasPath;
+            if (string.IsNullOrEmpty(path))
+            {
+                Debug.LogWarning($"atlas importer not found {atlasPath}");
+                return;
+            }
             var importer = AssetImporter.GetAtPath(path) as SpriteAtlasImporter;
             Assert.IsNotNull(importer);
-            if (ruleReader.IncludeInBuild.HasValue)
-            {
-                importer.includeInBuild = ruleReader.IncludeInBuild.Value;
-            }
-                  
-            SpriteAtlasPackingSettings packSetting = new SpriteAtlasPackingSettings()
-            {
-                blockOffset = 1,
-                enableRotation = ruleReader.EnableRotation ?? defaultSettings.EnableRotation,
-                enableTightPacking = ruleReader.EnableTightPacking ?? defaultSettings.EnableTightPacking,
-                padding = ruleReader.Padding ?? defaultSettings.Padding,
-            };
-            importer.packingSettings = packSetting ;
+            UpdateTextureImportSettings(importer, rule);
         }
-        
+
         /// <summary>
         /// 创建图集, 对图集进行统一设置
         /// </summary>
         /// <param name="atlasPath"></param>
         /// <returns></returns>
-        private static SpriteAtlasAsset CreateSpriteAtlas(string atlasPath)
+        /// <returns></returns>
+        private static SpriteAtlasAsset CreateSpriteAtlas(PackRuleReader rule, string atlasPath)
         {
-            SpriteAtlasGeneratorSettings.Instance.Validate();
-            var defaultSettings = SpriteAtlasGeneratorSettings.Instance.defaultAtlasSettings;
+           
             var atlas = new SpriteAtlasAsset();
             SpriteAtlasAsset.Save(atlas, atlasPath);
             AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
             var importer = AssetImporter.GetAtPath(atlasPath) as SpriteAtlasImporter;
             Assert.IsNotNull(importer);
-            importer.includeInBuild = defaultSettings.IncludeInBuild;
+            UpdateTextureImportSettings(importer, rule);
+            return atlas;
+        }
+
+        private static void UpdateTextureImportSettings(SpriteAtlasImporter importer, PackRuleReader rule)
+        {
+            SpriteAtlasGeneratorSettings.Instance.Validate();
+            var defaultSettings = SpriteAtlasGeneratorSettings.Instance.defaultAtlasSettings;
+            if (rule.IncludeInBuild.HasValue)
+            {
+                importer.includeInBuild = rule.IncludeInBuild.Value;
+            }
+            else
+            {
+                importer.includeInBuild = defaultSettings.IncludeInBuild;
+            }
             SpriteAtlasPackingSettings packSetting = new SpriteAtlasPackingSettings()
             {
                 blockOffset = 1,
-                enableRotation = defaultSettings.EnableRotation,
-                enableTightPacking = defaultSettings.EnableTightPacking,
-                padding = defaultSettings.Padding,
+                enableRotation = rule.EnableRotation ?? defaultSettings.EnableRotation,
+                enableTightPacking = rule.EnableTightPacking ?? defaultSettings.EnableTightPacking,
+                padding = rule.Padding ?? defaultSettings.Padding,
+                enableAlphaDilation = rule.EnableAlphaDilation ?? true,
             };
             importer.packingSettings = (packSetting);
             SpriteAtlasTextureSettings textureSetting = new SpriteAtlasTextureSettings()
@@ -226,14 +251,20 @@ namespace SpriteAtlasGenerator.Editor
             };
             importer.textureSettings = textureSetting;
             int maxSize = 2048; //最大尺寸
+            if (rule.MaxSize.HasValue)
+            {
+                maxSize = Mathf.Clamp(rule.MaxSize.Value, 256, 4096);
+            }
             int qualityLevel = 70;
             var defaultTexSettings = importer.GetPlatformSettings("DefaultTexturePlatform");
             if (defaultTexSettings == null)
                 defaultTexSettings = new TextureImporterPlatformSettings();
+            defaultTexSettings.name = "DefaultTexturePlatform";
             defaultTexSettings.maxTextureSize = maxSize;
             defaultTexSettings.textureCompression = TextureImporterCompression.Compressed;
             defaultTexSettings.compressionQuality = qualityLevel;
             defaultTexSettings.format = TextureImporterFormat.Automatic;
+            defaultTexSettings.overridden = true;
             importer.SetPlatformSettings(defaultTexSettings);
             var atlasAndSetting = importer.GetPlatformSettings("Android");
             if (atlasAndSetting == null)
@@ -244,21 +275,19 @@ namespace SpriteAtlasGenerator.Editor
             atlasAndSetting.compressionQuality = 0;
             atlasAndSetting.format = TextureImporterFormat.ASTC_4x4;
             importer.SetPlatformSettings(atlasAndSetting);
-
             var atlasiOSSetting = importer.GetPlatformSettings("iPhone");
             if (atlasiOSSetting == null)
                 atlasiOSSetting = new TextureImporterPlatformSettings();
             atlasiOSSetting.overridden = true;
-            atlasAndSetting.name = "iPhone";
+            atlasiOSSetting.name = "iPhone";
             atlasiOSSetting.maxTextureSize = maxSize;
             atlasiOSSetting.compressionQuality = 0;
             atlasiOSSetting.format = TextureImporterFormat.ASTC_4x4;
             importer.SetPlatformSettings(atlasiOSSetting);
             importer.SaveAndReimport();
-            return atlas;
         }
 
-        private static void AddNewSpriteToAtlas(string filePath, UnityEngine.Object[] packables, List<UnityEngine.Object> newPackableList)
+        private static void AddNewSpriteToAtlas(string filePath, HashSet<UnityEngine.Object> newPackableList)
         {
             UnityEngine.Object spriteObj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(filePath);
             if (!(spriteObj is Texture2D))
@@ -266,18 +295,29 @@ namespace SpriteAtlasGenerator.Editor
             var texture = (Texture2D)spriteObj;
             var importer = AssetImporter.GetAtPath(filePath) as TextureImporter;
             if (importer == null) return;
+            if (importer.textureType != TextureImporterType.Sprite)
+            {
+                return;
+            }
+            if (importer.spriteImportMode == SpriteImportMode.None)
+            {
+                return;
+            }
+            if (importer.spriteImportMode == SpriteImportMode.Multiple)
+            {
+                return;
+            }
             if (texture.width * texture.height > 1280 * 1024)
             {
                 return;
             }
-            importer.textureCompression = TextureImporterCompression.Uncompressed;
-            importer.SaveAndReimport();
-            if (packables == null || packables.Length == 0)
+
+            if (importer.textureCompression != TextureImporterCompression.Uncompressed)
             {
-                newPackableList.Add(texture);
-                return;
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SaveAndReimport();
             }
-            if (Array.Find(packables, x => x == texture) == null)
+            if (!newPackableList.Contains(texture))
                 newPackableList.Add(texture);
         }
     }
